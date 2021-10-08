@@ -1,0 +1,9 @@
+/target
+Cargo.lock
+
+# Flamegraph related files 
+/flamegraph.svg
+/perf.data*
+
+# IDEs
+/.vscode
