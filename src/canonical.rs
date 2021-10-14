@@ -67,6 +67,16 @@ impl<V> Canonical<V> {
     pub fn get_canonical(&self) -> &str {
         &self.canonical_json
     }
+
+    /// Returns the stored canonical JSON representation of the wrapped value.
+    pub fn into_canonical(self) -> String {
+        self.canonical_json
+    }
+
+    /// Unwraps into the stored value and canonical JSON representation.
+    pub fn into_parts(self) -> (V, String) {
+        (self.value, self.canonical_json)
+    }
 }
 
 impl<V> AsRef<V> for Canonical<V> {
