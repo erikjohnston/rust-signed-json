@@ -279,6 +279,8 @@ impl<'de> serde::Deserialize<'de> for Base64Signature {
 
 #[cfg(test)]
 mod tests {
+    use crate::keypair_from_secret_bytes;
+
     use super::*;
     use ed25519_dalek::SecretKey;
     use serde::{Deserialize, Serialize};
@@ -399,12 +401,7 @@ mod tests {
         );
 
         let k = b"qA\xeb\xc2^+(\\~P\x91(\xa4\xf4L\x1f\xeb\x07E\xae\x8b#q(\rMq\xf2\xc9\x8f\xe1\xca";
-        let secret_key = SecretKey::from_bytes(k).unwrap();
-        let public_key = (&secret_key).into();
-        let keypair = Keypair {
-            secret: secret_key,
-            public: public_key,
-        };
+        let keypair = keypair_from_secret_bytes(k).unwrap();
 
         s.sign("Alice".to_string(), "ed25519:zxcvb".to_string(), &keypair);
 
