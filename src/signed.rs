@@ -65,6 +65,13 @@ where
 }
 
 impl<V, U> Signed<V, U> {
+    /// Unwrap signed object into the wrapped value, the unsigned part and the
+    /// canonical bytes.
+    pub fn into_parts(self) -> (V, U, String) {
+        let (value, canonical) = self.value.into_parts();
+        (value, self.unsigned, canonical)
+    }
+
     /// Get the current set of signatures.
     pub fn signatures(&self) -> &BTreeMap<String, BTreeMap<String, Base64Signature>> {
         &self.signatures
