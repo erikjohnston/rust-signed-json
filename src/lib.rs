@@ -3,6 +3,8 @@ pub mod json;
 #[cfg(feature = "signed")]
 pub mod signed;
 
+use std::convert::TryInto;
+
 use anyhow::Error;
 pub use canonical::Canonical;
 #[doc(inline)]
@@ -11,12 +13,11 @@ pub use json::{to_string_canonical, to_vec_canonical};
 #[cfg(feature = "signed")]
 pub use signed::Signed;
 
-pub use ed25519_dalek::{Keypair, PublicKey, SecretKey};
+pub use ed25519_dalek::{SigningKey, VerifyingKey};
 
-/// Create a [`Keypair`] from a serialized [`SecretKey`].
-pub fn keypair_from_secret_bytes(bytes: &[u8]) -> Result<Keypair, Error> {
-    let secret = SecretKey::from_bytes(bytes)?;
-    let public = PublicKey::from(&secret);
+/// Create a [`SigningKey`] from a serialized [`ed25519_dalek::SecretKey`].
+pub fn keypair_from_secret_bytes(bytes: &[u8]) -> Result<SigningKey, Error> {
+    let secret = SigningKey::from_bytes(bytes.try_into()?);
 
-    Ok(Keypair { public, secret })
+    Ok(secret)
 }

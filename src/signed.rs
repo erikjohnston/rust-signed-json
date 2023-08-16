@@ -7,7 +7,7 @@ use std::convert::TryInto;
 use std::ops::Deref;
 
 use anyhow::{Context, Error};
-use ed25519_dalek::{Keypair, PublicKey, Signature, Signer, Verifier};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::de::{Deserialize, DeserializeOwned, Deserializer, Error as _};
 use serde::ser::Serializer;
 use serde::Serialize;
@@ -106,13 +106,13 @@ impl<V, U> Signed<V, U> {
     }
 
     /// Sign the canonical JSON and add the signature.
-    pub fn sign(&mut self, server_name: String, key_name: String, key: &Keypair) {
+    pub fn sign(&mut self, server_name: String, key_name: String, key: &SigningKey) {
         let sig = self.sign_detached(key);
         self.add_signature(server_name, key_name, sig);
     }
 
     /// Sign the canonical JSON without adding it as the signature.
-    pub fn sign_detached(&self, key: &Keypair) -> Signature {
+    pub fn sign_detached(&self, key: &SigningKey) -> Signature {
         let canonical = self.get_canonical();
 
         key.sign(canonical.as_bytes())
@@ -123,7 +123,7 @@ impl<V, U> Signed<V, U> {
         &self,
         server_name: &str,
         key_name: &str,
-        key: &PublicKey,
+        key: &VerifyingKey,
     ) -> Result<(), Error> {
         let signature = self
             .signatures
@@ -251,7 +251,10 @@ impl serde::Serialize for Base64Signature {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&base64::encode_config(&self.0, base64::STANDARD_NO_PAD))
+        serializer.serialize_str(&base64::encode_config(
+            self.0.to_bytes(),
+            base64::STANDARD_NO_PAD,
+        ))
     }
 }
 
@@ -282,13 +285,12 @@ mod tests {
     use crate::keypair_from_secret_bytes;
 
     use super::*;
-    use ed25519_dalek::SecretKey;
     use serde::{Deserialize, Serialize};
 
     #[test]
     fn base64_serialize() {
         let sig_bytes = b"_k{\x8c\xdd#h\x9b\"ejy\xed\xd6\xbd\x1a\xa9\x90\xf3\xbe\x10\x15\xbb\xa4\x08\xc4\xaas\x95\\\x95\xa0~\xda~\"\xf0\xb3\xdcd9\x03\xeb\xe7\xf3\x83\x8bd~\x94\xac\x88\x80\xe8\x82F8\x1dk\xf5rq\xa1\x02";
-        let sig = Signature::new(*sig_bytes);
+        let sig = Signature::from_bytes(sig_bytes);
         let b64 = Base64Signature(sig);
         let serialized = serde_json::to_string(&b64).unwrap();
 
@@ -303,7 +305,7 @@ mod tests {
         let serialized = r#""X2t7jN0jaJsiZWp57da9GqmQ874QFbukCMSqc5VclaB+2n4i8LPcZDkD6+fzg4tkfpSsiIDogkY4HWv1cnGhAg""#;
 
         let sig_bytes = b"_k{\x8c\xdd#h\x9b\"ejy\xed\xd6\xbd\x1a\xa9\x90\xf3\xbe\x10\x15\xbb\xa4\x08\xc4\xaas\x95\\\x95\xa0~\xda~\"\xf0\xb3\xdcd9\x03\xeb\xe7\xf3\x83\x8bd~\x94\xac\x88\x80\xe8\x82F8\x1dk\xf5rq\xa1\x02";
-        let expected_sig = Base64Signature(Signature::new(*sig_bytes));
+        let expected_sig = Base64Signature(Signature::from_bytes(sig_bytes));
 
         let de_sig: Base64Signature = serde_json::from_str(serialized).unwrap();
 
@@ -374,7 +376,7 @@ mod tests {
 
         let k = b"qA\xeb\xc2^+(\\~P\x91(\xa4\xf4L\x1f\xeb\x07E\xae\x8b#q(\rMq\xf2\xc9\x8f\xe1\xca";
 
-        let secret_key = SecretKey::from_bytes(k).unwrap();
+        let secret_key = SigningKey::from_bytes(k);
         let public_key = (&secret_key).into();
 
         s.verify_signature("Alice", "ed25519:zxcvb", &public_key)
