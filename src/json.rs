@@ -8,7 +8,7 @@ use std::{
     collections::BTreeMap,
     convert::TryFrom,
     io::{self, Write},
-    sync::atomic::AtomicBool,
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use serde::{ser::SerializeMap, Deserializer};
@@ -109,6 +109,10 @@ fn assert_integer_in_range<I>(v: I) -> Result<(), serde_json::Error>
 where
     i64: TryFrom<I>,
 {
+    if !ENFORCE_INT_RANGE.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+
     let res = i64::try_from(v);
     match res {
         Ok(MIN_VALID_INTEGER..=MAX_VALID_INTEGER) => Ok(()),
@@ -239,17 +243,13 @@ where
     }
 
     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
-        if ENFORCE_INT_RANGE.load(std::sync::atomic::Ordering::Relaxed) {
-            assert_integer_in_range(v)?;
-        }
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_i64(v)
     }
 
     fn serialize_i128(self, v: i128) -> Result<Self::Ok, Self::Error> {
-        if ENFORCE_INT_RANGE.load(std::sync::atomic::Ordering::Relaxed) {
-            assert_integer_in_range(v)?;
-        }
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_i128(v)
     }
@@ -271,17 +271,13 @@ where
     }
 
     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
-        if ENFORCE_INT_RANGE.load(std::sync::atomic::Ordering::Relaxed) {
-            assert_integer_in_range(v)?;
-        }
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_u64(v)
     }
 
     fn serialize_u128(self, v: u128) -> Result<Self::Ok, Self::Error> {
-        if ENFORCE_INT_RANGE.load(std::sync::atomic::Ordering::Relaxed) {
-            assert_integer_in_range(v)?;
-        }
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_u128(v)
     }
