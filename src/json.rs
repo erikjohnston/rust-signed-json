@@ -8,6 +8,7 @@ use std::{
     collections::BTreeMap,
     convert::TryFrom,
     io::{self, Write},
+    sync::atomic::AtomicBool,
 };
 
 use serde::{ser::SerializeMap, Deserializer};
@@ -26,6 +27,10 @@ pub const MIN_VALID_INTEGER: i64 = -(2i64.pow(53)) + 1;
 
 /// The maximum integer that can be used in canonical JSON.
 pub const MAX_VALID_INTEGER: i64 = (2i64.pow(53)) - 1;
+
+/// Whether to strictly enforce the canonical JSON allowable number range.
+/// Allows JSON for room versions v5 or less when `false`.
+pub static ENFORCE_INT_RANGE: AtomicBool = AtomicBool::new(true);
 
 /// Serialize the given data structure as a canonical JSON byte vector.
 ///
@@ -234,13 +239,17 @@ where
     }
 
     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        if ENFORCE_INT_RANGE.load(std::sync::atomic::Ordering::Relaxed) {
+            assert_integer_in_range(v)?;
+        }
 
         self.inner.serialize_i64(v)
     }
 
     fn serialize_i128(self, v: i128) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        if ENFORCE_INT_RANGE.load(std::sync::atomic::Ordering::Relaxed) {
+            assert_integer_in_range(v)?;
+        }
 
         self.inner.serialize_i128(v)
     }
@@ -262,13 +271,17 @@ where
     }
 
     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        if ENFORCE_INT_RANGE.load(std::sync::atomic::Ordering::Relaxed) {
+            assert_integer_in_range(v)?;
+        }
 
         self.inner.serialize_u64(v)
     }
 
     fn serialize_u128(self, v: u128) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        if ENFORCE_INT_RANGE.load(std::sync::atomic::Ordering::Relaxed) {
+            assert_integer_in_range(v)?;
+        }
 
         self.inner.serialize_u128(v)
     }
@@ -563,11 +576,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, sync::Mutex};
 
     use serde_json::json;
 
     use super::*;
+
+    static DELICATE_IMPLIED_SHARED_STATE: Mutex<()> = Mutex::new(());
 
     #[test]
     fn empty() {
@@ -660,6 +675,8 @@ mod tests {
 
     #[test]
     fn integers() {
+        let _lock = DELICATE_IMPLIED_SHARED_STATE.lock().unwrap();
+        super::ENFORCE_INT_RANGE.store(true, std::sync::atomic::Ordering::SeqCst);
         assert_eq!(to_string_canonical(&100u8).unwrap(), "100");
         assert_eq!(to_string_canonical(&100u16).unwrap(), "100");
         assert_eq!(to_string_canonical(&100u32).unwrap(), "100");
@@ -679,6 +696,28 @@ mod tests {
         assert!(to_string_canonical(&2i128.pow(60)).is_err());
         assert!(to_string_canonical(&-(2i64.pow(60))).is_err());
         assert!(to_string_canonical(&-(2i128.pow(60))).is_err());
+    }
+
+    #[test]
+    fn backwards_compatibility() {
+        let _lock = DELICATE_IMPLIED_SHARED_STATE.lock().unwrap();
+        super::ENFORCE_INT_RANGE.store(false, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(
+            to_string_canonical(&u64::MAX).unwrap(),
+            format!("{}", u64::MAX)
+        );
+        assert_eq!(
+            to_string_canonical(&u128::MAX).unwrap(),
+            format!("{}", u128::MAX)
+        );
+        assert_eq!(
+            to_string_canonical(&i128::MAX).unwrap(),
+            format!("{}", i128::MAX)
+        );
+        assert_eq!(
+            to_string_canonical(&-i128::MAX).unwrap(),
+            format!("{}", -i128::MAX)
+        );
     }
 
     #[test]
