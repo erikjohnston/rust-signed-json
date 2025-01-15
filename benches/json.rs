@@ -6,12 +6,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, to_vec, Value};
 use test::Bencher;
 
-use signed_json::{json::to_vec_canonical, Canonical, Signed};
+use signed_json::{json::to_vec_canonical, Canonical, CanonicalizationOptions, Signed};
 
 #[bench]
 fn bench_empty_canonical(b: &mut Bencher) {
     let value = json!({});
-    b.iter(|| to_vec_canonical(&value));
+    b.iter(|| to_vec_canonical(&value, CanonicalizationOptions::strict()));
 }
 
 #[bench]
@@ -28,7 +28,7 @@ fn bench_simple_canonical(b: &mut Bencher) {
             "a": "field",
         }
     });
-    b.iter(|| to_vec_canonical(&value));
+    b.iter(|| to_vec_canonical(&value, CanonicalizationOptions::strict()));
 }
 
 #[bench]

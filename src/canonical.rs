@@ -5,7 +5,7 @@ use std::convert::AsRef;
 use std::ops::Deref;
 
 use crate::json::canonicalize_deserializer;
-use crate::to_string_canonical;
+use crate::{to_string_canonical, CanonicalizationOptions};
 
 /// A read only wrapper type for deserializing a JSON value that serializes back
 /// into the original JSON string (modulo being canonicalized).
@@ -53,7 +53,7 @@ where
     pub fn wrap(value: V) -> Result<Canonical<V>, Error> {
         let val: serde_json::Value = serde_json::to_value(&value)?;
 
-        let canonical_json = to_string_canonical(&val)?;
+        let canonical_json = to_string_canonical(&val, CanonicalizationOptions::strict())?;
 
         Ok(Canonical {
             value,
@@ -127,6 +127,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::CanonicalizationOptions;
+
     use super::*;
     use serde::{Deserialize, Serialize};
 
@@ -146,7 +148,7 @@ mod tests {
     fn test_serialize() {
         let c = Canonical::wrap(A { a: 2 }).unwrap();
 
-        let s = to_string_canonical(&c).unwrap();
+        let s = to_string_canonical(&c, CanonicalizationOptions::strict()).unwrap();
 
         assert_eq!(&s, r#"{"a":2}"#);
     }
@@ -156,7 +158,7 @@ mod tests {
         let c: Canonical<A> = serde_json::from_str(r#"{"a": 2, "b": 3}"#).unwrap();
         assert_eq!(c.as_ref(), &A { a: 2 });
 
-        let s = to_string_canonical(&c).unwrap();
+        let s = to_string_canonical(&c, CanonicalizationOptions::strict()).unwrap();
 
         assert_eq!(&s, r#"{"a":2,"b":3}"#);
     }

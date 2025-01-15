@@ -8,7 +8,6 @@ use std::{
     collections::BTreeMap,
     convert::TryFrom,
     io::{self, Write},
-    sync::atomic::{AtomicBool, Ordering},
 };
 
 use serde::{ser::SerializeMap, Deserializer};
@@ -28,9 +27,29 @@ pub const MIN_VALID_INTEGER: i64 = -(2i64.pow(53)) + 1;
 /// The maximum integer that can be used in canonical JSON.
 pub const MAX_VALID_INTEGER: i64 = (2i64.pow(53)) - 1;
 
-/// Whether to strictly enforce the canonical JSON allowable number range.
-/// Allows JSON for room versions v5 or less when `false`.
-pub static ENFORCE_INT_RANGE: AtomicBool = AtomicBool::new(true);
+/// Options to control how strict JSON canonicalization is.
+#[derive(Clone, Debug)]
+pub struct CanonicalizationOptions {
+    /// Configure the serializer to strictly enforce the canonical JSON allowable number range.
+    /// Allows JSON for room versions v5 or less when `false`.
+    enforce_int_range: bool,
+}
+
+impl CanonicalizationOptions {
+    /// Creates an instance of [CanonicalizationOptions] with permissive JSON enforcement settings.
+    pub fn relaxed() -> Self {
+        Self {
+            enforce_int_range: false,
+        }
+    }
+
+    /// Creates an instance of [CanonicalizationOptions] with strict JSON enforcement settings.
+    pub fn strict() -> Self {
+        Self {
+            enforce_int_range: true,
+        }
+    }
+}
 
 /// Serialize the given data structure as a canonical JSON byte vector.
 ///
@@ -46,12 +65,15 @@ pub static ENFORCE_INT_RANGE: AtomicBool = AtomicBool::new(true);
 /// Serialization can fail if `T`'s implementation of `Serialize` decides to
 /// fail, if `T` contains a map with non-string keys, or if `T` contains numbers
 /// that are not integers in the range `[-2**53 + 1, 2**53 - 1]`.
-pub fn to_vec_canonical<T>(value: &T) -> Result<Vec<u8>, serde_json::Error>
+pub fn to_vec_canonical<T>(
+    value: &T,
+    options: CanonicalizationOptions,
+) -> Result<Vec<u8>, serde_json::Error>
 where
     T: Serialize + ?Sized,
 {
     let mut vec = Vec::new();
-    let mut ser = CanonicalSerializer::new(&mut vec);
+    let mut ser = CanonicalSerializer::new(&mut vec, options);
     value.serialize(&mut ser)?;
 
     Ok(vec)
@@ -71,11 +93,14 @@ where
 /// Serialization can fail if `T`'s implementation of `Serialize` decides to
 /// fail, if `T` contains a map with non-string keys, or if `T` contains numbers
 /// that are not integers in the range `[-2**53 + 1, 2**53 - 1]`.
-pub fn to_string_canonical<T>(value: &T) -> Result<String, serde_json::Error>
+pub fn to_string_canonical<T>(
+    value: &T,
+    options: CanonicalizationOptions,
+) -> Result<String, serde_json::Error>
 where
     T: Serialize + ?Sized,
 {
-    let vec = to_vec_canonical(value)?;
+    let vec = to_vec_canonical(value, options)?;
 
     // We'll always get valid UTF-8 out
     let json_string = String::from_utf8(vec).expect("valid utf8");
@@ -89,7 +114,7 @@ where
     D: Deserializer<'de>,
 {
     let mut vec = Vec::new();
-    let mut serializer = CanonicalSerializer::new(&mut vec);
+    let mut serializer = CanonicalSerializer::new(&mut vec, CanonicalizationOptions::strict());
     serde_transcode::transcode(deserializer, &mut serializer)?;
 
     let json_string = String::from_utf8(vec).expect("valid utf8");
@@ -109,10 +134,6 @@ fn assert_integer_in_range<I>(v: I) -> Result<(), serde_json::Error>
 where
     i64: TryFrom<I>,
 {
-    if !ENFORCE_INT_RANGE.load(Ordering::Relaxed) {
-        return Ok(());
-    }
-
     let res = i64::try_from(v);
     match res {
         Ok(MIN_VALID_INTEGER..=MAX_VALID_INTEGER) => Ok(()),
@@ -175,6 +196,7 @@ impl Formatter for CanonicalFormatter {
 /// JSON](https://matrix.org/docs/spec/appendices#canonical-json).
 pub struct CanonicalSerializer<W> {
     inner: Serializer<W, CanonicalFormatter>,
+    options: CanonicalizationOptions,
 }
 
 impl<W> CanonicalSerializer<W>
@@ -183,9 +205,10 @@ where
 {
     /// Create a new serializer that writes the canonical JSON bytes to the
     /// given writer.
-    pub fn new(writer: W) -> Self {
+    pub fn new(writer: W, options: CanonicalizationOptions) -> Self {
         Self {
             inner: Serializer::with_formatter(writer, CanonicalFormatter),
+            options,
         }
     }
 }
@@ -243,13 +266,17 @@ where
     }
 
     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v)?;
+        if self.options.enforce_int_range {
+            assert_integer_in_range(v)?;
+        }
 
         self.inner.serialize_i64(v)
     }
 
     fn serialize_i128(self, v: i128) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v)?;
+        if self.options.enforce_int_range {
+            assert_integer_in_range(v)?;
+        }
 
         self.inner.serialize_i128(v)
     }
@@ -271,13 +298,17 @@ where
     }
 
     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v)?;
+        if self.options.enforce_int_range {
+            assert_integer_in_range(v)?;
+        }
 
         self.inner.serialize_u64(v)
     }
 
     fn serialize_u128(self, v: u128) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v)?;
+        if self.options.enforce_int_range {
+            assert_integer_in_range(v)?;
+        }
 
         self.inner.serialize_u128(v)
     }
@@ -388,7 +419,10 @@ where
     }
 
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        Ok(CanonicalSerializeMap::new(&mut self.inner))
+        Ok(CanonicalSerializeMap::new(
+            &mut self.inner,
+            self.options.clone(),
+        ))
     }
 
     fn serialize_struct(
@@ -404,7 +438,10 @@ where
         if name == "$serde_json::private::RawValue" {
             return Err(Self::Error::custom("`RawValue` is not supported"));
         }
-        Ok(CanonicalSerializeMap::new(&mut self.inner))
+        Ok(CanonicalSerializeMap::new(
+            &mut self.inner,
+            self.options.clone(),
+        ))
     }
 
     fn serialize_struct_variant(
@@ -461,14 +498,19 @@ pub struct CanonicalSerializeMap<'a, W> {
     last_key: Option<String>,
     // The serializer to use to write the sorted map too.
     ser: &'a mut Serializer<W, CanonicalFormatter>,
+    options: CanonicalizationOptions,
 }
 
 impl<'a, W> CanonicalSerializeMap<'a, W> {
-    fn new(ser: &'a mut Serializer<W, CanonicalFormatter>) -> Self {
+    fn new(
+        ser: &'a mut Serializer<W, CanonicalFormatter>,
+        options: CanonicalizationOptions,
+    ) -> Self {
         Self {
             map: BTreeMap::new(),
             last_key: None,
             ser,
+            options,
         }
     }
 }
@@ -517,7 +559,7 @@ where
 
         // We serialize the value canonically, then store it as a `RawValue` in
         // the buffer map.
-        let value_string = to_string_canonical(value)?;
+        let value_string = to_string_canonical(value, self.options.clone())?;
 
         self.map
             .insert(key_string, RawValue::from_string(value_string)?);
@@ -555,7 +597,7 @@ where
 
         // We serialize the value canonically, then store it as a `RawValue` in
         // the buffer map.
-        let value_string = to_string_canonical(value)?;
+        let value_string = to_string_canonical(value, self.options.clone())?;
 
         self.map
             .insert(key_string, RawValue::from_string(value_string)?);
@@ -572,19 +614,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Mutex};
+    use std::collections::HashMap;
 
     use serde_json::json;
 
     use super::*;
 
-    static DELICATE_IMPLIED_SHARED_STATE: Mutex<()> = Mutex::new(());
-
     #[test]
     fn empty() {
         let test = json!({});
 
-        let json_string = to_string_canonical(&test).unwrap();
+        let json_string = to_string_canonical(&test, CanonicalizationOptions::strict()).unwrap();
 
         assert_eq!(json_string, r#"{}"#);
     }
@@ -599,7 +639,7 @@ mod tests {
 
         let test = Test { b: 1, a: 2 };
 
-        let json_string = to_string_canonical(&test).unwrap();
+        let json_string = to_string_canonical(&test, CanonicalizationOptions::strict()).unwrap();
 
         assert_eq!(json_string, r#"{"a":2,"b":1}"#);
     }
@@ -612,7 +652,7 @@ mod tests {
             "c": "\x01",
         });
 
-        let json_string = to_string_canonical(&test).unwrap();
+        let json_string = to_string_canonical(&test, CanonicalizationOptions::strict()).unwrap();
 
         assert_eq!(json_string, r#"{"a":"🍻","b":"\n","c":"\u0001"}"#);
     }
@@ -625,7 +665,7 @@ mod tests {
         // Ensure that we encode every UTF-8 character correctly
         for c in '\0'..='\u{10FFFF}' {
             // Serialize the character and strip out the quotes to make comparison easier.
-            let json_string = to_string_canonical(&c).unwrap();
+            let json_string = to_string_canonical(&c, CanonicalizationOptions::strict()).unwrap();
             let unquoted_json_string = &json_string[1..json_string.len() - 1];
 
             let expected = match c {
@@ -658,60 +698,86 @@ mod tests {
             "a": {"b": 1}
         });
 
-        let json_string = to_string_canonical(&test).unwrap();
+        let json_string = to_string_canonical(&test, CanonicalizationOptions::strict()).unwrap();
 
         assert_eq!(json_string, r#"{"a":{"b":1}}"#);
     }
 
     #[test]
     fn floats() {
-        assert!(to_string_canonical(&100.0f32).is_err());
-        assert!(to_string_canonical(&100.0f64).is_err());
+        assert!(to_string_canonical(&100.0f32, CanonicalizationOptions::strict()).is_err());
+        assert!(to_string_canonical(&100.0f64, CanonicalizationOptions::strict()).is_err());
     }
 
     #[test]
     fn integers() {
-        let _lock = DELICATE_IMPLIED_SHARED_STATE.lock().unwrap();
-        super::ENFORCE_INT_RANGE.store(true, std::sync::atomic::Ordering::SeqCst);
-        assert_eq!(to_string_canonical(&100u8).unwrap(), "100");
-        assert_eq!(to_string_canonical(&100u16).unwrap(), "100");
-        assert_eq!(to_string_canonical(&100u32).unwrap(), "100");
-        assert_eq!(to_string_canonical(&100u64).unwrap(), "100");
-        assert_eq!(to_string_canonical(&100u128).unwrap(), "100");
+        assert_eq!(
+            to_string_canonical(&100u8, CanonicalizationOptions::strict()).unwrap(),
+            "100"
+        );
+        assert_eq!(
+            to_string_canonical(&100u16, CanonicalizationOptions::strict()).unwrap(),
+            "100"
+        );
+        assert_eq!(
+            to_string_canonical(&100u32, CanonicalizationOptions::strict()).unwrap(),
+            "100"
+        );
+        assert_eq!(
+            to_string_canonical(&100u64, CanonicalizationOptions::strict()).unwrap(),
+            "100"
+        );
+        assert_eq!(
+            to_string_canonical(&100u128, CanonicalizationOptions::strict()).unwrap(),
+            "100"
+        );
 
-        assert_eq!(to_string_canonical(&100i8).unwrap(), "100");
-        assert_eq!(to_string_canonical(&100i16).unwrap(), "100");
-        assert_eq!(to_string_canonical(&100i32).unwrap(), "100");
-        assert_eq!(to_string_canonical(&100i64).unwrap(), "100");
-        assert_eq!(to_string_canonical(&100i128).unwrap(), "100");
+        assert_eq!(
+            to_string_canonical(&100i8, CanonicalizationOptions::strict()).unwrap(),
+            "100"
+        );
+        assert_eq!(
+            to_string_canonical(&100i16, CanonicalizationOptions::strict()).unwrap(),
+            "100"
+        );
+        assert_eq!(
+            to_string_canonical(&100i32, CanonicalizationOptions::strict()).unwrap(),
+            "100"
+        );
+        assert_eq!(
+            to_string_canonical(&100i64, CanonicalizationOptions::strict()).unwrap(),
+            "100"
+        );
+        assert_eq!(
+            to_string_canonical(&100i128, CanonicalizationOptions::strict()).unwrap(),
+            "100"
+        );
 
-        assert!(to_string_canonical(&2u64.pow(60)).is_err());
-        assert!(to_string_canonical(&2u128.pow(60)).is_err());
+        assert!(to_string_canonical(&2u64.pow(60), CanonicalizationOptions::strict()).is_err());
+        assert!(to_string_canonical(&2u128.pow(60), CanonicalizationOptions::strict()).is_err());
 
-        assert!(to_string_canonical(&2i64.pow(60)).is_err());
-        assert!(to_string_canonical(&2i128.pow(60)).is_err());
-        assert!(to_string_canonical(&-(2i64.pow(60))).is_err());
-        assert!(to_string_canonical(&-(2i128.pow(60))).is_err());
+        assert!(to_string_canonical(&2i64.pow(60), CanonicalizationOptions::strict()).is_err());
+        assert!(to_string_canonical(&2i128.pow(60), CanonicalizationOptions::strict()).is_err());
+        assert!(to_string_canonical(&-(2i64.pow(60)), CanonicalizationOptions::strict()).is_err());
+        assert!(to_string_canonical(&-(2i128.pow(60)), CanonicalizationOptions::strict()).is_err());
     }
 
     #[test]
     fn backwards_compatibility() {
-        let _lock = DELICATE_IMPLIED_SHARED_STATE.lock().unwrap();
-        super::ENFORCE_INT_RANGE.store(false, std::sync::atomic::Ordering::SeqCst);
         assert_eq!(
-            to_string_canonical(&u64::MAX).unwrap(),
+            to_string_canonical(&u64::MAX, CanonicalizationOptions::relaxed()).unwrap(),
             format!("{}", u64::MAX)
         );
         assert_eq!(
-            to_string_canonical(&u128::MAX).unwrap(),
+            to_string_canonical(&u128::MAX, CanonicalizationOptions::relaxed()).unwrap(),
             format!("{}", u128::MAX)
         );
         assert_eq!(
-            to_string_canonical(&i128::MAX).unwrap(),
+            to_string_canonical(&i128::MAX, CanonicalizationOptions::relaxed()).unwrap(),
             format!("{}", i128::MAX)
         );
         assert_eq!(
-            to_string_canonical(&-i128::MAX).unwrap(),
+            to_string_canonical(&-i128::MAX, CanonicalizationOptions::relaxed()).unwrap(),
             format!("{}", -i128::MAX)
         );
     }
@@ -726,7 +792,7 @@ mod tests {
         test.insert("a", 1);
         test.insert("AA", 1);
 
-        let json_string = to_string_canonical(&test).unwrap();
+        let json_string = to_string_canonical(&test, CanonicalizationOptions::strict()).unwrap();
 
         assert_eq!(json_string, r#"{"AA":1,"a":1,"b":1,"c":1,"d":1,"e":1}"#);
     }
@@ -735,6 +801,6 @@ mod tests {
     fn raw_value() {
         let raw_value = RawValue::from_string("{}".to_string()).unwrap();
 
-        assert!(to_string_canonical(&raw_value).is_err());
+        assert!(to_string_canonical(&raw_value, CanonicalizationOptions::strict()).is_err());
     }
 }
