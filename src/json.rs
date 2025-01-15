@@ -216,37 +216,37 @@ where
     }
 
     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_i8(v)
     }
 
     fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_i16(v)
     }
 
     fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_i32(v)
     }
 
     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_i64(v)
     }
 
     fn serialize_i128(self, v: i128) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_i128(v)
     }
 
     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_u8(v)
     }
@@ -256,19 +256,19 @@ where
     }
 
     fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_u32(v)
     }
 
     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_u64(v)
     }
 
     fn serialize_u128(self, v: u128) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_u128(v)
     }
@@ -679,6 +679,11 @@ mod tests {
         assert!(to_string_canonical(&2i128.pow(60)).is_err());
         assert!(to_string_canonical(&-(2i64.pow(60))).is_err());
         assert!(to_string_canonical(&-(2i128.pow(60))).is_err());
+
+        assert!(to_string_canonical(&u64::MAX).is_err());
+        assert!(to_string_canonical(&u128::MAX).is_err());
+        assert!(to_string_canonical(&i128::MAX).is_err());
+        assert!(to_string_canonical(&-i128::MAX).is_err());
     }
 
     #[test]
