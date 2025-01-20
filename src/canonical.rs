@@ -8,15 +8,20 @@ use std::ops::Deref;
 use crate::json::canonicalize_deserializer;
 use crate::{to_string_canonical, CanonicalizationOptions};
 
+/// Marker type that relaxes the canonical JSON rules to accomodate room versions v5 or older.
 #[derive(Clone, Debug, Default)]
 pub struct JsonRelaxed;
+
+/// Marker type that enforces all canonical JSON rules to accomodate room versions v6 or newer.
 #[derive(Clone, Debug, Default)]
 pub struct JsonStrict;
 
+/// API to wrap an existing JSON value with it's canonical form.
 pub trait CanonicalWrapper<V, T>
 where
     V: Serialize,
 {
+    /// Wrap an existing value and use its serialization as the canonical JSON.
     fn wrap(value: V) -> Result<Canonical<V, T>, Error>;
 }
 
@@ -64,7 +69,6 @@ impl<V> CanonicalWrapper<V, JsonStrict> for Canonical<V, JsonStrict>
 where
     V: Serialize,
 {
-    /// Wrap an existing value and use its serialization as the canonical JSON.
     fn wrap(value: V) -> Result<Canonical<V, JsonStrict>, Error> {
         let val: serde_json::Value = serde_json::to_value(&value)?;
 
@@ -82,7 +86,6 @@ impl<V> CanonicalWrapper<V, JsonRelaxed> for Canonical<V, JsonRelaxed>
 where
     V: Serialize,
 {
-    /// Wrap an existing value and use its serialization as the canonical JSON.
     fn wrap(value: V) -> Result<Canonical<V, JsonRelaxed>, Error> {
         let val: serde_json::Value = serde_json::to_value(&value)?;
 

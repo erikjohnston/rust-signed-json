@@ -15,11 +15,17 @@ use serde::ser::Serializer;
 use serde::Serialize;
 use serde_json::Value;
 
+/// API to wrap an existing signed JSON value with it's canonical form.
 pub trait Wrap<V, U, T>
 where
     V: Serialize,
 {
+    /// Wraps an existing value, with no signatures and a default unsigned
+    /// section.
     fn wrap(value: V) -> Result<Signed<V, U, T>, Error>;
+
+    /// Wraps an existing value, with no signatures and a default unsigned
+    /// section.
     fn wrap_with_unsigned(value: V, unsigned: U) -> Result<Signed<V, U, T>, Error>;
 }
 
@@ -48,8 +54,6 @@ where
     V: Serialize,
     U: Default,
 {
-    /// Wraps an existing value, with no signatures and a default unsigned
-    /// section.
     fn wrap(value: V) -> Result<Signed<V, U, JsonStrict>, Error> {
         Ok(Signed {
             value: Canonical::<V, JsonStrict>::wrap(value)?,
@@ -58,8 +62,6 @@ where
         })
     }
 
-    /// Wraps an existing value, with no signatures and a default unsigned
-    /// section.
     fn wrap_with_unsigned(value: V, unsigned: U) -> Result<Signed<V, U, JsonStrict>, Error> {
         Ok(Signed {
             value: Canonical::<V, JsonStrict>::wrap(value)?,
@@ -74,8 +76,6 @@ where
     V: Serialize,
     U: Default,
 {
-    /// Wraps an existing value, with no signatures and a default unsigned
-    /// section.
     fn wrap(value: V) -> Result<Signed<V, U, JsonRelaxed>, Error> {
         Ok(Signed {
             value: Canonical::<V, JsonRelaxed>::wrap(value)?,
@@ -84,8 +84,6 @@ where
         })
     }
 
-    /// Wraps an existing value, with no signatures and a default unsigned
-    /// section.
     fn wrap_with_unsigned(value: V, unsigned: U) -> Result<Signed<V, U, JsonRelaxed>, Error> {
         Ok(Signed {
             value: Canonical::<V, JsonRelaxed>::wrap(value)?,
