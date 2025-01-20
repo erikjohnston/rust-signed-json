@@ -248,19 +248,19 @@ where
     }
 
     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_i8(v)
     }
 
     fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_i16(v)
     }
 
     fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_i32(v)
     }
@@ -282,7 +282,7 @@ where
     }
 
     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_u8(v)
     }
@@ -292,7 +292,7 @@ where
     }
 
     fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
-        assert_integer_in_range(v as i64)?;
+        assert_integer_in_range(v)?;
 
         self.inner.serialize_u32(v)
     }
