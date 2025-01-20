@@ -194,22 +194,7 @@ where
 
         let map = value.as_object_mut().unwrap();
 
-        // TODO: Better error messages when this fails.
-        let raw_sigs = map
-            .remove("signatures")
-            .unwrap_or_else(|| Value::Object(Default::default()));
-        let raw_unsigned = map
-            .remove("unsigned")
-            .unwrap_or_else(|| Value::Object(Default::default()));
-
-        let signatures: BTreeMap<String, BTreeMap<String, Base64Signature>> =
-            serde_json::from_value(raw_sigs).map_err(|err| {
-                serde::de::Error::custom(format!("Failed to parse signature field: {}", err))
-            })?;
-
-        let unsigned: U = serde_json::from_value(raw_unsigned).map_err(|err| {
-            serde::de::Error::custom(format!("Failed to parse unsigned field: {}", err))
-        })?;
+        let (signatures, unsigned) = extract_unsigned::<D, _>(map)?;
 
         let canonical = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
 
@@ -234,22 +219,7 @@ where
 
         let map = value.as_object_mut().unwrap();
 
-        // TODO: Better error messages when this fails.
-        let raw_sigs = map
-            .remove("signatures")
-            .unwrap_or_else(|| Value::Object(Default::default()));
-        let raw_unsigned = map
-            .remove("unsigned")
-            .unwrap_or_else(|| Value::Object(Default::default()));
-
-        let signatures: BTreeMap<String, BTreeMap<String, Base64Signature>> =
-            serde_json::from_value(raw_sigs).map_err(|err| {
-                serde::de::Error::custom(format!("Failed to parse signature field: {}", err))
-            })?;
-
-        let unsigned: U = serde_json::from_value(raw_unsigned).map_err(|err| {
-            serde::de::Error::custom(format!("Failed to parse unsigned field: {}", err))
-        })?;
+        let (signatures, unsigned) = extract_unsigned::<D, _>(map)?;
 
         let canonical = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
 
@@ -259,6 +229,34 @@ where
             unsigned,
         })
     }
+}
+
+fn extract_unsigned<'de, D, U>(
+    map: &mut serde_json::Map<String, Value>,
+) -> Result<(BTreeMap<String, BTreeMap<String, Base64Signature>>, U), D::Error>
+where
+    D: Deserializer<'de>,
+    U: DeserializeOwned + Default,
+{
+    // TODO: Better error messages when this fails.
+
+    let raw_sigs = map
+        .remove("signatures")
+        .unwrap_or_else(|| Value::Object(Default::default()));
+    let raw_unsigned = map
+        .remove("unsigned")
+        .unwrap_or_else(|| Value::Object(Default::default()));
+
+    let signatures: BTreeMap<String, BTreeMap<String, Base64Signature>> =
+        serde_json::from_value(raw_sigs).map_err(|err| {
+            serde::de::Error::custom(format!("Failed to parse signature field: {}", err))
+        })?;
+
+    let unsigned: U = serde_json::from_value(raw_unsigned).map_err(|err| {
+        serde::de::Error::custom(format!("Failed to parse unsigned field: {}", err))
+    })?;
+
+    Ok((signatures, unsigned))
 }
 
 impl<V, U, T> Serialize for Signed<V, U, T>
