@@ -109,12 +109,15 @@ where
 }
 
 /// Transcode the deserializer to canonical JSON.
-pub fn canonicalize_deserializer<'de, D>(deserializer: D) -> Result<String, serde_json::Error>
+pub fn canonicalize_deserializer<'de, D>(
+    deserializer: D,
+    options: CanonicalizationOptions,
+) -> Result<String, serde_json::Error>
 where
     D: Deserializer<'de>,
 {
     let mut vec = Vec::new();
-    let mut serializer = CanonicalSerializer::new(&mut vec, CanonicalizationOptions::strict());
+    let mut serializer = CanonicalSerializer::new(&mut vec, options);
     serde_transcode::transcode(deserializer, &mut serializer)?;
 
     let json_string = String::from_utf8(vec).expect("valid utf8");
@@ -123,10 +126,13 @@ where
 }
 
 /// Convert the given JSON string to canonical JSON.
-pub fn canonicalize_string(value: &str) -> Result<String, serde_json::Error> {
+pub fn canonicalize_string(
+    value: &str,
+    options: CanonicalizationOptions,
+) -> Result<String, serde_json::Error> {
     let mut deserializer = serde_json::Deserializer::from_str(value);
 
-    canonicalize_deserializer(&mut deserializer)
+    canonicalize_deserializer(&mut deserializer, options)
 }
 
 /// A helper function that asserts that an integer is in the valid range.

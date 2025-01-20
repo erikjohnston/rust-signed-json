@@ -1,5 +1,7 @@
 //! Helper types for dealing with signed JSON objects.
 
+use crate::canonical::{CanonicalWrapper, JsonRelaxed, JsonStrict};
+
 use super::canonical::Canonical;
 
 use std::collections::BTreeMap;
@@ -12,6 +14,14 @@ use serde::de::{Deserialize, DeserializeOwned, Deserializer, Error as _};
 use serde::ser::Serializer;
 use serde::Serialize;
 use serde_json::Value;
+
+pub trait Wrap<V, U, T>
+where
+    V: Serialize,
+{
+    fn wrap(value: V) -> Result<Signed<V, U, T>, Error>;
+    fn wrap_with_unsigned(value: V, unsigned: U) -> Result<Signed<V, U, T>, Error>;
+}
 
 /// A wrapper type around a deserialized signed JSON blob.
 ///
@@ -26,44 +36,66 @@ use serde_json::Value;
 /// field, as they will get ignored in favour of the ones stored in the
 /// [`Signed`] object.
 #[derive(Clone, Debug)]
-pub struct Signed<V, U = Value> {
-    value: Canonical<V>,
+pub struct Signed<V, U = Value, T = JsonStrict> {
+    value: Canonical<V, T>,
 
     signatures: BTreeMap<String, BTreeMap<String, Base64Signature>>,
     unsigned: U,
 }
 
-impl<V, U> Signed<V, U>
+impl<V, U> Wrap<V, U, JsonStrict> for Signed<V, U, JsonStrict>
 where
     V: Serialize,
     U: Default,
 {
     /// Wraps an existing value, with no signatures and a default unsigned
     /// section.
-    pub fn wrap(value: V) -> Result<Signed<V, U>, Error> {
+    fn wrap(value: V) -> Result<Signed<V, U, JsonStrict>, Error> {
         Ok(Signed {
-            value: Canonical::wrap(value)?,
+            value: Canonical::<V, JsonStrict>::wrap(value)?,
             signatures: BTreeMap::new(),
             unsigned: U::default(),
         })
     }
-}
 
-impl<V, U> Signed<V, U>
-where
-    V: Serialize,
-{
-    /// Wraps an existing value and unsigned object, with no signatures.
-    pub fn wrap_with_unsigned(value: V, unsigned: U) -> Result<Signed<V, U>, Error> {
+    /// Wraps an existing value, with no signatures and a default unsigned
+    /// section.
+    fn wrap_with_unsigned(value: V, unsigned: U) -> Result<Signed<V, U, JsonStrict>, Error> {
         Ok(Signed {
-            value: Canonical::wrap(value)?,
+            value: Canonical::<V, JsonStrict>::wrap(value)?,
             signatures: BTreeMap::new(),
             unsigned,
         })
     }
 }
 
-impl<V, U> Signed<V, U> {
+impl<V, U> Wrap<V, U, JsonRelaxed> for Signed<V, U, JsonRelaxed>
+where
+    V: Serialize,
+    U: Default,
+{
+    /// Wraps an existing value, with no signatures and a default unsigned
+    /// section.
+    fn wrap(value: V) -> Result<Signed<V, U, JsonRelaxed>, Error> {
+        Ok(Signed {
+            value: Canonical::<V, JsonRelaxed>::wrap(value)?,
+            signatures: BTreeMap::new(),
+            unsigned: U::default(),
+        })
+    }
+
+    /// Wraps an existing value, with no signatures and a default unsigned
+    /// section.
+    fn wrap_with_unsigned(value: V, unsigned: U) -> Result<Signed<V, U, JsonRelaxed>, Error> {
+        Ok(Signed {
+            value: Canonical::<V, JsonRelaxed>::wrap(value)?,
+            signatures: BTreeMap::new(),
+            unsigned,
+        })
+    }
+}
+
+impl<V, U, T> Signed<V, U, T> {
     /// Unwrap signed object into the wrapped value, the unsigned part and the
     /// canonical bytes.
     pub fn into_parts(self) -> (V, U, String) {
@@ -151,12 +183,12 @@ impl<V, U> Deref for Signed<V, U> {
     }
 }
 
-impl<'de, V, U> Deserialize<'de> for Signed<V, U>
+impl<'de, V, U> Deserialize<'de> for Signed<V, U, JsonStrict>
 where
     V: DeserializeOwned,
     U: DeserializeOwned + Default,
 {
-    fn deserialize<D>(deserializer: D) -> Result<Signed<V, U>, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Signed<V, U, JsonStrict>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -191,7 +223,47 @@ where
     }
 }
 
-impl<V, U> Serialize for Signed<V, U>
+impl<'de, V, U> Deserialize<'de> for Signed<V, U, JsonRelaxed>
+where
+    V: DeserializeOwned,
+    U: DeserializeOwned + Default,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Signed<V, U, JsonRelaxed>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+
+        let map = value.as_object_mut().unwrap();
+
+        // TODO: Better error messages when this fails.
+        let raw_sigs = map
+            .remove("signatures")
+            .unwrap_or_else(|| Value::Object(Default::default()));
+        let raw_unsigned = map
+            .remove("unsigned")
+            .unwrap_or_else(|| Value::Object(Default::default()));
+
+        let signatures: BTreeMap<String, BTreeMap<String, Base64Signature>> =
+            serde_json::from_value(raw_sigs).map_err(|err| {
+                serde::de::Error::custom(format!("Failed to parse signature field: {}", err))
+            })?;
+
+        let unsigned: U = serde_json::from_value(raw_unsigned).map_err(|err| {
+            serde::de::Error::custom(format!("Failed to parse unsigned field: {}", err))
+        })?;
+
+        let canonical = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+
+        Ok(Signed {
+            value: canonical,
+            signatures,
+            unsigned,
+        })
+    }
+}
+
+impl<V, U, T> Serialize for Signed<V, U, T>
 where
     U: Serialize,
 {
@@ -331,6 +403,28 @@ mod tests {
         assert_eq!(s.value.as_ref(), &A { a: 1 });
         assert_eq!(s.signatures.len(), 0);
         assert_eq!(s.value.get_canonical(), r#"{"a":1,"b":2}"#);
+
+        let _s = serde_json::from_str::<Signed<A>>(
+            r#"{ "a": 9223372036854775807, "b": 2, "signatures": {}, "unsigned": {} }"#,
+        )
+        .unwrap_err();
+
+        let s: Signed<A, Value, JsonRelaxed> = serde_json::from_str(
+            r#"{ "a": 9223372036854775807, "b": 2, "signatures": {}, "unsigned": {} }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            s.value.as_ref(),
+            &A {
+                a: 9223372036854775807
+            }
+        );
+        assert_eq!(s.signatures.len(), 0);
+        assert_eq!(
+            s.value.get_canonical(),
+            r#"{"a":9223372036854775807,"b":2}"#
+        );
     }
 
     #[test]
@@ -340,6 +434,14 @@ mod tests {
         let j = serde_json::to_string(&s).unwrap();
 
         assert_eq!(j, r#"{"a":1,"signatures":{}}"#);
+
+        let _s = Signed::<_, serde_json::Value>::wrap(A { a: i64::MAX }).unwrap_err();
+
+        let s = Signed::<_, serde_json::Value, JsonRelaxed>::wrap(A { a: i64::MAX }).unwrap();
+
+        let j = serde_json::to_string(&s).unwrap();
+
+        assert_eq!(j, r#"{"a":9223372036854775807,"signatures":{}}"#);
     }
 
     #[test]
