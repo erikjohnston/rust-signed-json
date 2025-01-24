@@ -8,7 +8,7 @@ use std::convert::TryInto;
 use anyhow::Error;
 pub use canonical::Canonical;
 #[doc(inline)]
-pub use json::{to_string_canonical, to_vec_canonical};
+pub use json::{to_string_canonical, to_vec_canonical, CanonicalizationOptions};
 #[doc(inline)]
 #[cfg(feature = "signed")]
 pub use signed::Signed;

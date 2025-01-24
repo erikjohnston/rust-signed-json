@@ -2,10 +2,28 @@ use serde::de::{Deserialize, DeserializeOwned, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_json::error::Error;
 use std::convert::AsRef;
+use std::marker::PhantomData;
 use std::ops::Deref;
 
 use crate::json::canonicalize_deserializer;
-use crate::to_string_canonical;
+use crate::{to_string_canonical, CanonicalizationOptions};
+
+/// Marker type that relaxes the canonical JSON rules to accomodate room versions v5 or older.
+#[derive(Clone, Debug, Default)]
+pub struct JsonRelaxed;
+
+/// Marker type that enforces all canonical JSON rules to accomodate room versions v6 or newer.
+#[derive(Clone, Debug, Default)]
+pub struct JsonStrict;
+
+/// API to wrap an existing JSON value with it's canonical form.
+pub trait CanonicalWrapper<V, T>
+where
+    V: Serialize,
+{
+    /// Wrap an existing value and use its serialization as the canonical JSON.
+    fn wrap(value: V) -> Result<Canonical<V, T>, Error>;
+}
 
 /// A read only wrapper type for deserializing a JSON value that serializes back
 /// into the original JSON string (modulo being canonicalized).
@@ -40,29 +58,48 @@ use crate::to_string_canonical;
 /// [`Canonical`] stores the serialized canonical JSON and exposes it as
 /// `get_canonical()`.
 #[derive(Clone, Debug)]
-pub struct Canonical<V> {
+pub struct Canonical<V, T = JsonStrict> {
     value: V,
     canonical_json: String,
+
+    canonical_strictness: PhantomData<T>,
 }
 
-impl<V> Canonical<V>
+impl<V> CanonicalWrapper<V, JsonStrict> for Canonical<V, JsonStrict>
 where
     V: Serialize,
 {
-    /// Wrap an existing value and use its serialization as the canonical JSON.
-    pub fn wrap(value: V) -> Result<Canonical<V>, Error> {
+    fn wrap(value: V) -> Result<Canonical<V, JsonStrict>, Error> {
         let val: serde_json::Value = serde_json::to_value(&value)?;
 
-        let canonical_json = to_string_canonical(&val)?;
+        let canonical_json = to_string_canonical(&val, CanonicalizationOptions::strict())?;
 
-        Ok(Canonical {
+        Ok(Canonical::<V, JsonStrict> {
             value,
             canonical_json,
+            canonical_strictness: PhantomData,
         })
     }
 }
 
-impl<V> Canonical<V> {
+impl<V> CanonicalWrapper<V, JsonRelaxed> for Canonical<V, JsonRelaxed>
+where
+    V: Serialize,
+{
+    fn wrap(value: V) -> Result<Canonical<V, JsonRelaxed>, Error> {
+        let val: serde_json::Value = serde_json::to_value(&value)?;
+
+        let canonical_json = to_string_canonical(&val, CanonicalizationOptions::relaxed())?;
+
+        Ok(Canonical::<V, JsonRelaxed> {
+            value,
+            canonical_json,
+            canonical_strictness: PhantomData,
+        })
+    }
+}
+
+impl<V, T> Canonical<V, T> {
     /// Get the stored canonical JSON representation of the wrapped value.
     pub fn get_canonical(&self) -> &str {
         &self.canonical_json
@@ -79,13 +116,13 @@ impl<V> Canonical<V> {
     }
 }
 
-impl<V> AsRef<V> for Canonical<V> {
+impl<V, T> AsRef<V> for Canonical<V, T> {
     fn as_ref(&self) -> &V {
         &self.value
     }
 }
 
-impl<V> Deref for Canonical<V> {
+impl<V, T> Deref for Canonical<V, T> {
     type Target = V;
 
     fn deref(&self) -> &Self::Target {
@@ -93,7 +130,7 @@ impl<V> Deref for Canonical<V> {
     }
 }
 
-impl<V> Serialize for Canonical<V> {
+impl<V, T> Serialize for Canonical<V, T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -105,34 +142,62 @@ impl<V> Serialize for Canonical<V> {
     }
 }
 
-impl<'de, V> Deserialize<'de> for Canonical<V>
+impl<'de, V> Deserialize<'de> for Canonical<V, JsonStrict>
 where
     V: DeserializeOwned,
 {
-    fn deserialize<D>(deserializer: D) -> Result<Canonical<V>, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Canonical<V, JsonStrict>, D::Error>
     where
         D: Deserializer<'de>,
     {
         let canonical_json =
-            canonicalize_deserializer(deserializer).map_err(serde::de::Error::custom)?;
+            canonicalize_deserializer(deserializer, CanonicalizationOptions::strict())
+                .map_err(serde::de::Error::custom)?;
 
         let value = serde_json::from_str(&canonical_json).map_err(serde::de::Error::custom)?;
 
         Ok(Canonical {
             value,
             canonical_json,
+            canonical_strictness: PhantomData,
+        })
+    }
+}
+
+impl<'de, V> Deserialize<'de> for Canonical<V, JsonRelaxed>
+where
+    V: DeserializeOwned,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Canonical<V, JsonRelaxed>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let canonical_json =
+            canonicalize_deserializer(deserializer, CanonicalizationOptions::relaxed())
+                .map_err(serde::de::Error::custom)?;
+
+        let value = serde_json::from_str(&canonical_json).map_err(serde::de::Error::custom)?;
+
+        Ok(Canonical {
+            value,
+            canonical_json,
+            canonical_strictness: PhantomData,
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::i64;
+
+    use crate::CanonicalizationOptions;
+
     use super::*;
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
     struct A {
-        a: u32,
+        a: i64,
     }
 
     #[test]
@@ -140,15 +205,41 @@ mod tests {
         let c: Canonical<A> = serde_json::from_str(r#"{"a": 2}"#).unwrap();
 
         assert_eq!(c.as_ref(), &A { a: 2 });
+
+        let _c = serde_json::from_str::<Canonical<A>>(r#"{"a": 9223372036854775807}"#).unwrap_err();
+
+        let c: Canonical<A, JsonRelaxed> =
+            serde_json::from_str(r#"{"a": 9223372036854775807}"#).unwrap();
+
+        assert_eq!(
+            c.as_ref(),
+            &A {
+                a: 9223372036854775807
+            }
+        );
     }
 
     #[test]
     fn test_serialize() {
-        let c = Canonical::wrap(A { a: 2 }).unwrap();
+        let c = Canonical::<A>::wrap(A { a: 2 }).unwrap();
 
-        let s = to_string_canonical(&c).unwrap();
+        let s = to_string_canonical(&c, CanonicalizationOptions::strict()).unwrap();
 
         assert_eq!(&s, r#"{"a":2}"#);
+
+        let _c = Canonical::<A>::wrap(A {
+            a: 9223372036854775807,
+        })
+        .unwrap_err();
+
+        let c = Canonical::<A, JsonRelaxed>::wrap(A {
+            a: 9223372036854775807,
+        })
+        .unwrap();
+
+        let s = to_string_canonical(&c, CanonicalizationOptions::relaxed()).unwrap();
+
+        assert_eq!(&s, r#"{"a":9223372036854775807}"#);
     }
 
     #[test]
@@ -156,7 +247,7 @@ mod tests {
         let c: Canonical<A> = serde_json::from_str(r#"{"a": 2, "b": 3}"#).unwrap();
         assert_eq!(c.as_ref(), &A { a: 2 });
 
-        let s = to_string_canonical(&c).unwrap();
+        let s = to_string_canonical(&c, CanonicalizationOptions::strict()).unwrap();
 
         assert_eq!(&s, r#"{"a":2,"b":3}"#);
     }
