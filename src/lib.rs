@@ -6,7 +6,7 @@ pub mod signed;
 use std::convert::TryInto;
 
 use anyhow::Error;
-pub use canonical::Canonical;
+pub use canonical::{Canonical, CanonicalWrapper};
 #[doc(inline)]
 pub use json::{to_string_canonical, to_vec_canonical, CanonicalizationOptions};
 #[doc(inline)]
